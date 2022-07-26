@@ -1,0 +1,95 @@
+stages:
+  - sonarqube-check
+  - dockerbuild
+  - docker-image-scan
+  - clean-up-cache
+  - DeployStaging
+  - DeployProduction
+
+sonarqube-check:
+  stage: sonarqube-check
+  image:
+    name: sonarsource/sonar-scanner-cli:latest
+    entrypoint: [""]
+  variables:
+    SONAR_USER_HOME: "${CI_PROJECT_DIR}/.sonar"  # Defines the location of the analysis task cache
+    GIT_DEPTH: "0"  # Tells git to fetch all the branches of the project, required by the analysis task
+  cache:
+    key: "${CI_JOB_NAME}"
+    paths:
+      - .sonar/cache
+  script:
+    - sonar-scanner -Dsonar.qualitygate.wait=true
+  allow_failure: true
+  only:
+    - tags
+
+dockerbuild:
+  stage: dockerbuild
+  image: docker:latest
+  script:  
+   - ls
+   - docker login --username admin --password P@ssw0rd123$%^ https://harbor.alfredshek.fun
+   - docker build --pull -t harbor.alfredshek.fun/nke/eshoponweb:$CI_COMMIT_TAG -f src/Web/Dockerfile .
+   - docker push harbor.alfredshek.fun/nke/eshoponweb:$CI_COMMIT_TAG
+  only: 
+    - tags
+docker-image-scan:
+  stage: docker-image-scan
+  image: 
+    name: aquasec/trivy
+    entrypoint: [""]
+  variables:
+    FULL_IMAGE_NAME: harbor.alfredshek.fun/nke/eshoponweb:$CI_COMMIT_TAG
+  script:
+    - trivy --version
+    - TRIVY_INSECURE=true trivy image --no-progress --severity CRITICAL -o container-scanning-report.txt "$FULL_IMAGE_NAME"
+  cache:
+    paths:
+      - .trivycache/
+  artifacts:
+    reports:
+      container_scanning: container-scanning-report.txt
+  only: 
+   - tags
+clean-up-cache:
+  stage: clean-up-cache
+  image: docker:20.10
+  script:
+#delete gilab-runner cache
+    - docker image rm harbor.alfredshek.fun/nke/eshoponweb:$CI_COMMIT_TAG
+    - docker image prune -f
+  only: 
+   - tags
+DeployStaging:
+  stage: DeployStaging
+  image: 
+    name: bitnami/kubectl:latest
+    entrypoint: [""]
+  script: 
+   - cd kubernetes
+   - sed -i 's/eshoponweb:version/eshoponweb:'$CI_COMMIT_TAG'/g' eshoponweb-deployment.yaml
+   - cat $stagingkubeconfig > ~/.kube/config
+   - kubectl apply -k ./ -n nke
+   - kubectl get service eshoponweb -n nke
+  only: 
+   - tags
+  environment:
+    name: staging
+DeployProduction:
+  stage: DeployProduction
+  image: 
+    name: bitnami/kubectl:latest
+    entrypoint: [""]
+  script: 
+   - cd kubernetes
+   - sed -i 's/eshoponweb:version/eshoponweb:'$CI_COMMIT_TAG'/g' eshoponweb-deployment.yaml
+   - sed -i 's/3/1/g' eshoponweb-deployment.yaml
+   - cat $prokubeconfig > ~/.kube/config
+   - kubectl apply -k ./ -n nke
+   - kubectl get service eshoponweb -n nke
+  only: 
+   - tags
+  environment:
+    name: Production
+  when: manual

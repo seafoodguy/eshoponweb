@@ -1,0 +1,21 @@
+apiVersion: apps/v1
+kind: Deployment # provides declarative updates for Pods and ReplicaSets. Describe the desired state
+metadata: # 
+  labels:
+    app.kubernetes.io/name: load-balancer-example # label for the deployment
+  name: hello-world # the name of the deployment
+spec:
+  replicas: 5 # the Deployment creates five replicated Pods
+  selector: # defines how the Deployment finds which Pods to manage
+    matchLabels: # select a label that is defined in the Pod template (app.kubernetes.io/name: load-balancer-example)
+      app.kubernetes.io/name: load-balancer-example
+  template: # Pod template
+    metadata:
+      labels: # label the Pod
+        app.kubernetes.io/name: load-balancer-example
+    spec:
+      containers: # Pod runs one container
+        - image: gcr.io/google-samples/node-hello:1.0 # which runs the node-hello image
+          name: hello-world # name of the container
+          ports:
+            - containerPort: 8080
